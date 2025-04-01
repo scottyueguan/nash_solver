@@ -3,3 +3,4 @@ __pycache__/
 *.pkl
 dist/
 build/
+/tests/test_data/
