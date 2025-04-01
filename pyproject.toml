@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nash_solver"
+version = "0.0.1"
+description = "A Nash solver for zero-sum stochastic games."
+authors = [
+    {name = "Scott Guan", email = "yguan44@gatech.edu"}
+]
+license = {text = "MIT"}
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "numpy",
+    "scipy"
+]
+
+[project.urls]
+"Homepage" = "tba"
