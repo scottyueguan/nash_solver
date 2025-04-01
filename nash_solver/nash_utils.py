@@ -1,11 +1,11 @@
 import numpy as np
 from scipy.optimize import linprog
 
-
 # warnings.filterwarnings('ignore', '.*Ill-conditioned*')
-DEBUG=True
+DEBUG = True
 
-def linprog_solver_col(value_matrix, precision=4):
+
+def linprog_solve(value_matrix, precision=4):
     '''
     :param value_matrix: M X N Matrix. The entry of the jointly selected row and column represents the winnings of the
                          row player and the loss of the column player
@@ -48,50 +48,18 @@ def linprog_solver_col(value_matrix, precision=4):
         bounds.append((0, 1))
     bounds.append((None, None))
 
-    options = {'cholesky': False,
-               'sym_pos': False,
-               'lstsq': True,
-               'presolve': True},
-
-    res = linprog(C, A_ub=A, b_ub=B, A_eq=A_eq, b_eq=B_eq, bounds=bounds)
-    policy = res['x'][:-1]
-    for i, p in enumerate(policy):
+    res = linprog(C, A_ub=A, b_ub=B, A_eq=A_eq, b_eq=B_eq, bounds=bounds, method='highs')
+    policy_col = res['x'][:-1]
+    for i, p in enumerate(policy_col):
         if p < 0:
-            policy[i] = 0
-    policy /= sum(policy)
-    return policy, res['fun']
+            policy_col[i] = 0
+    policy_col /= sum(policy_col)
 
+    policy_row = -res.ineqlin.marginals
 
-def linprog_solver_row(value_matrix, precision=4):
-    policy, value = linprog_solver_col(-value_matrix.T, precision)
-    return policy, -value
+    return res['fun'], policy_row, policy_col
 
 
 def linprog_solve_value(value_matrix, precision=4):
-    _, value = linprog_solver_row(value_matrix, precision=4)
-    if DEBUG and np.isnan(value):
-        print(value_matrix)
-    value = np.nan_to_num(np.round(value, precision))
+    value, _, _ = linprog_solve(value_matrix, precision)
     return value
-
-def linprog_solve_policy_x(value_matrix, precision=4):
-    px, _ = linprog_solver_row(value_matrix, precision)
-    return px
-
-def linprog_solve_policy_y(value_matrix, precision=4):
-    py, _ = linprog_solver_col(value_matrix, precision)
-    return py
-
-def linprog_solve(value_matrix, precision=4):
-    value_matrix = np.round(value_matrix, precision)
-    py, value = linprog_solver_col(value_matrix, precision)
-    px, _ = linprog_solver_row(value_matrix, precision)
-    for i, x in enumerate(px):
-        if np.fabs(x) < 10e-6:
-            px[i] = 0
-    for i, y in enumerate(py):
-        if np.fabs(y) < 10e-6:
-            py[i] = 0
-    px = np.divide(px, np.sum(px))
-    py = np.divide(py, np.sum(py))
-    return value, px, py

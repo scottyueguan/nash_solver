@@ -3,8 +3,7 @@ import pathlib
 from nash_solver.base_game import BaseGame
 import numpy as np
 from copy import deepcopy
-from nash_solver.nash_utils import linprog_solve_value, linprog_solve, linprog_solver_row
-from nash_solver.nash_utils import linprog_solve_policy_x, linprog_solve_policy_y
+from nash_solver.nash_utils import linprog_solve, linprog_solve_value
 import pickle
 import time
 from multiprocessing import Pool
@@ -49,12 +48,13 @@ class NashSolver:
         if save_path is not None and not save_path.exists():
             save_path.mkdir(parents=True)
 
-
-
         self.n_workers = n_workers
 
     def solve(self, **options):
         np.set_printoptions(precision=3)
+
+        n_value_iterations = options.get("n_value_iterations", 1)
+
         tic = time.time()
         diff = 1000
         self._print("Solving Nash equilibrium of a game with {} states".format(self.game.get_n_states()))
@@ -96,11 +96,11 @@ class NashSolver:
 
     def _generate_policy_parallel(self):
         pool = Pool(self.n_workers)
-        results_x = pool.map(linprog_solve_policy_x, [self.Q[s] for s in range(self.game.get_n_states())])
-        self._print("row policy generated!")
-        results_y = pool.map(linprog_solve_policy_y, [self.Q[s] for s in range(self.game.get_n_states())])
-        self._print("col policy generated!")
-        return results_x, results_y
+        results = pool.map(linprog_solve, [self.Q[s] for s in range(self.game.get_n_states())])
+        self._print("policies generated!")
+        policy_x, policy_y = [res[1] for res in results], [res[2] for res in results]
+        return policy_x, policy_y
+
 
     def _update_q(self):
         for s in range(self.game.get_n_states()):
@@ -122,7 +122,7 @@ class NashSolver:
 
     def _update_v_(self):
         for s in range(self.game.get_n_states()):
-            _, self.V_[s] = linprog_solver_row(self.Q[s])
+            self.V_[s] = linprog_solve_value(self.Q[s])
 
     def _update_v(self):
         self.V = deepcopy(self.V_)
