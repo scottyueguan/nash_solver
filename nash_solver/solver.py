@@ -1,3 +1,5 @@
+import pathlib
+
 from nash_solver.base_game import BaseGame
 import numpy as np
 from copy import deepcopy
@@ -9,11 +11,29 @@ from multiprocessing import Pool
 
 
 class NashSolver:
-    def __init__(self, game: BaseGame, eps=1e-1, verbose=True, save_path=None, save_checkpoint=False, n_workers=1):
+    def __init__(self, game: BaseGame,
+                 eps: float = 1e-2,
+                 save_path: pathlib.Path = None,
+                 n_workers: int = 1,
+                 verbose: bool = True,
+                 save_checkpoint: bool = False):
+        """
+        Nash equilibrium solver using value iteration and linear programming
+        :param game: BaseGame object that provides the necessary information of the game
+        :param eps: the difference threshold for convergence. Using l2 norm between two value iterations
+        :param save_path: pathlib.Path determines the directory to save the model and log
+        :param n_workers: number of worker used for parallelization. Default is 1 for sequential.
+        :param verbose: Whether to print out the solver progress: iteration, difference between value iterations, time
+        :param save_checkpoint: Whether to save check points to restart the solver recommended for large games
+        """
         self.game = game
         self.eps = eps
+
+        # V stores the old value function and V_ stores the updated value function
         self.V, self.V_ = np.zeros(self.game.get_n_states()), np.zeros(self.game.get_n_states())
-        self.Q = [np.zeros((self.game.get_n_action1(s), self.game.get_n_action2(s))) for s in range(self.game.get_n_states())]
+        # Q stores the Q matrix for each state
+        self.Q = [np.zeros((self.game.get_n_action1(s), self.game.get_n_action2(s))) for s in
+                  range(self.game.get_n_states())]
 
         self.policy_1, self.policy_2 = None, None
         self.error = []
@@ -26,9 +46,14 @@ class NashSolver:
             assert save_path is not None
         self.save_path = save_path
 
+        if save_path is not None and not save_path.exists():
+            save_path.mkdir(parents=True)
+
+
+
         self.n_workers = n_workers
 
-    def solve(self):
+    def solve(self, **options):
         np.set_printoptions(precision=3)
         tic = time.time()
         diff = 1000
@@ -43,12 +68,12 @@ class NashSolver:
                 self._update_v_()
 
             toc = time.time()
-            diff = np.round_(np.linalg.norm(self.V_ - self.V), 3)
+            diff = np.round(np.linalg.norm(self.V_ - self.V), 3)
             self.error.append(diff)
             self.time.append(toc - tic)
 
             self._update_v()
-            self._print(f"{self.counter : <10} {diff: <15} {np.round_(toc - tic, 1): <10}")
+            self._print(f"{self.counter : <10} {diff: <15} {np.round(toc - tic, 1): <10}")
             self.counter += 1
 
             if self.counter % 5 == 0 and self.counter > 0 and self.save_checkpoint:
@@ -111,41 +136,42 @@ class NashSolver:
     def get_q(self):
         return self.Q
 
-    # TODO: open file with manager
-    # TODO: update path to pathlib
     def save(self, check_point=False):
         save_path = self.save_path
         self.save_policy(save_path, check_point)
         self.save_model(save_path, check_point)
         self.save_log(save_path, check_point)
 
-    def save_policy(self, save_path, check_point):
+    def save_policy(self, save_path: pathlib.Path, check_point):
         if not check_point:
-            f = open(save_path / "policy.pkl", "wb")
-            data = [self.policy_1, self.policy_2]
+            with open(save_path / "policy.pkl", "wb") as f:
+                data = [self.policy_1, self.policy_2]
+                pickle.dump(data, f)
+
+    def save_model(self, save_path: pathlib.Path, check_point):
+        if check_point:
+            file_name = save_path / "model_check_point.pkl"
+        else:
+            file_name = save_path / "model.pkl"
+        with open(file_name, "wb") as f:
+            data = [self.V, self.Q]
             pickle.dump(data, f)
 
-    def save_model(self, save_path, check_point):
+    def save_log(self, save_path: pathlib.Path, check_point):
         if check_point:
-            f = open(save_path / "model_check_point.pkl", "wb")
+            file_name = save_path / "log_check_point.pkl"
         else:
-            f = open(save_path / "model.pkl", "wb")
-        data = [self.V, self.Q]
-        pickle.dump(data, f)
+            file_name = save_path / "log.pkl"
+        with open(file_name, "wb") as f:
+            data = [self.error, self.time]
+            pickle.dump(data, f)
 
-    def save_log(self, save_path, check_point):
-        if check_point:
-            f = open(save_path / "log_check_point.pkl", "wb")
-        else:
-            f = open(save_path / "log.pkl", "wb")
-        data = [self.error, self.time]
-        pickle.dump(data, f)
+    def load_checkpoint(self, save_path_model: pathlib.Path, save_path_log: pathlib.Path):
+        with open(save_path_model, "rb") as f_model:
+            self.V, self.Q = deepcopy(pickle.load(f_model))
+        with open(save_path_log, "rb") as f_log:
+            self.error, self.time = deepcopy(pickle.load(f_log))
 
-    def load_checkpoint(self, save_path_model, save_path_log):
-        f_model = open(save_path_model, "rb")
-        f_log = open(save_path_log, "rb")
-        self.error, self.time = deepcopy(pickle.load(f_log))
-        self.V, self.Q = deepcopy(pickle.load(f_model))
         self.V_ = deepcopy(self.V)
         self.counter = len(self.error)
 

@@ -7,8 +7,7 @@ class BaseGame:
     def __init__(self, n_states: Union[int],
                  n_actions_1: Union[List[int], int], n_actions_2: Union[List[int], int],
                  transitions: Union[List[List[np.ndarray]], None] = None,
-                 compressed_transition: Union[
-                     Tuple[List[List[List[List[int]]]], List[List[List[np.ndarray]]]], None] = None,
+                 compressed_transition = None,
                  rewards: np.ndarray = None,
                  terminal_states: List[int] = None, gamma: float = 0.95):
         """
@@ -18,8 +17,8 @@ class BaseGame:
         :param n_actions_2: int or List[int], number of actions for player 2 (in each state)
         :param transitions: List[List[np.ndarray]], transitions[a1][a2] gives the n_states x n_states transition matrix with row sum to 1
         :param compressed_transition:
-               compressed_transition[0][a1][a2][s] gives the state indices that the joint state will transition to
-               compressed_transition[1][a1][a2][s] gives the probability of transitioning to the corresponding state
+               compressed_transition[0][a1][a2][s] - a list with the state indices that the joint state will transition to
+               compressed_transition[1][a1][a2][s] - a 1d ndarray of the probability of transitioning to the corresponding state
         :param rewards: np.ndarray, either 1d or 3d.
                if 1d, rewards[s] gives the reward of state s,
                if 3d, rewards[s, a1, a2] gives the reward of state s with action a1 and a2
