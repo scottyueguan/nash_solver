@@ -82,7 +82,7 @@ def test_sequential_rps():
     # https://arxiv.org/pdf/2009.00162.pdf
     # a0-R, a1-P, a2-S
 
-    solver = NashSolver(seq_rps, eps=1e-3, verbose=False, n_workers=1)
+    solver = NashSolver(seq_rps, eps=1e-3, verbose=False, n_workers=2)
     solver.solve()
     p1, p2 = solver.policy_1, solver.policy_2
 
@@ -90,6 +90,13 @@ def test_sequential_rps():
         assert np.allclose(p1[s], np.array([1 / 3, 1 / 3, 1 / 3]))
         assert np.allclose(p2[s], np.array([1 / 3, 1 / 3, 1 / 3]))
 
+def test_compressed_transition():
+    #todo: implement test for compressed transition
+    pass
+
+def test_policy_eval():
+    # todo: test the policy evaluation function
+    pass
 
 def test_save_load():
     # test the save and load function of the nash solver

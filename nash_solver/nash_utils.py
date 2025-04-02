@@ -14,8 +14,13 @@ def linprog_solve(value_matrix, precision=4):
     :return: policy of the column player, the value of the game
     '''
 
+
     value_matrix = -np.nan_to_num(np.round(value_matrix, precision))
     m, n = value_matrix.shape
+
+    # save computation if the value matrix is zeros, meaning that the reward hasn't propagated to the state yet
+    if np.allclose(value_matrix, 0):
+        return 0, np.ones(m) / m, np.ones(n) / n
 
     # solve col
     # objectif vector c is 0*x1+0*x2+...+0*xn+v
@@ -63,3 +68,5 @@ def linprog_solve(value_matrix, precision=4):
 def linprog_solve_value(value_matrix, precision=4):
     value, _, _ = linprog_solve(value_matrix, precision)
     return value
+
+# def policy_eval()

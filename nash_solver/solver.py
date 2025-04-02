@@ -7,6 +7,7 @@ from nash_solver.nash_utils import linprog_solve, linprog_solve_value
 import pickle
 import time
 from multiprocessing import Pool
+from functools import partial
 
 
 class NashSolver:
@@ -34,7 +35,8 @@ class NashSolver:
         self.Q = [np.zeros((self.game.get_n_action1(s), self.game.get_n_action2(s))) for s in
                   range(self.game.get_n_states())]
 
-        self.policy_1, self.policy_2 = None, None
+        self.policy_1 = [None for _ in range(self.game.get_n_states())]
+        self.policy_2 = [None for _ in range(self.game.get_n_states())]
         self.error = []
         self.time = []
         self.verbose = verbose
@@ -51,23 +53,23 @@ class NashSolver:
         self.n_workers = n_workers
 
     def solve(self, **options):
-        np.set_printoptions(precision=3)
+        np.set_printoptions(precision=options.get("precision", 4))
 
-        n_value_iterations = options.get("n_value_iterations", 1)
+        n_policy_eval = options.get("n_policy_eval", 0)
 
         tic = time.time()
         diff = 1000
         self._print("Solving Nash equilibrium of a game with {} states".format(self.game.get_n_states()))
         self._print(f"{'Iter' : <10} {'Difference': <15} {'Time': <10}")
         while diff > self.eps:
+            self._policy_eval(n_policy_eval=n_policy_eval)
+
             self._update_q()
 
-            if self.n_workers > 1:
-                self._update_v_parallel()
-            else:
-                self._update_v_()
+            self._update_v_()
 
             toc = time.time()
+
             diff = np.round(np.linalg.norm(self.V_ - self.V), 3)
             self.error.append(diff)
             self.time.append(toc - tic)
@@ -79,50 +81,44 @@ class NashSolver:
             if self.counter % 5 == 0 and self.counter > 0 and self.save_checkpoint:
                 self.save(check_point=True)
 
-        self._print("Value iterations done, generating policies...")
-        self.policy_1, self.policy_2 = self._generate_policy_parallel()
+        self._print("Value iterations converged!")
+        # self.policy_1, self.policy_2 = self._generate_policy_parallel()
 
         n_matrix_game_solver_called = int(self.game.get_n_states() * self.counter)
         self._print("Matrix Game solver called {} times".format(n_matrix_game_solver_called))
         return self.policy_1, self.policy_2, self.V, self.Q, n_matrix_game_solver_called
 
-    def _generate_policy(self):
-        policy_1, policy_2 = [], []
-        for s in range(self.game.get_n_states()):
-            _, policy_1_s, policy_2_s = linprog_solve(self.Q[s])
-            policy_1.append(policy_1_s)
-            policy_2.append(policy_2_s)
-        return policy_1, policy_2
-
-    def _generate_policy_parallel(self):
-        pool = Pool(self.n_workers)
-        results = pool.map(linprog_solve, [self.Q[s] for s in range(self.game.get_n_states())])
-        self._print("policies generated!")
-        policy_x, policy_y = [res[1] for res in results], [res[2] for res in results]
-        return policy_x, policy_y
-
+    def _policy_eval(self, n_policy_eval=0):
+        for _ in range(n_policy_eval):
+            self._update_q()
+            self._eval_v()
 
     def _update_q(self):
-        for s in range(self.game.get_n_states()):
-            for a1 in range(self.game.get_n_action1(s)):
-                for a2 in range(self.game.get_n_action2(s)):
-                    if self.game.has_compressed_transition:
-                        to_states, to_states_prob = self.game.get_compressed_transitions_s(s, a1, a2)
-                        self.Q[s][a1, a2] = self.game.get_rewards(s, a1, a2) + \
-                                            self.game.gamma * np.array(to_states_prob).dot(np.array(self.V[to_states]))
-                    else:
-                        T_s = self.game.get_transitions_s(s=s, a1=a1, a2=a2)
-                        # assert abs(np.sum(T_s) - 1)<1e-5
-                        self.Q[s][a1, a2] = self.game.get_rewards(s, a1, a2) + self.game.gamma * T_s.dot(self.V)
+        if self.n_workers > 1:
+            s_list = list(range(self.game.get_n_states()))
+            func = partial(compute_q_s, game=self.game, v=self.V)
+            with Pool(self.n_workers) as pool:
+                res = pool.map(func, s_list)
+            self.Q = list(res)
+        else:
+            for s in range(self.game.get_n_states()):
+                self.Q[s] = compute_q_s(s, self.game, self.V)
 
-    def _update_v_parallel(self):
-        pool = Pool(self.n_workers)
-        results = pool.map(linprog_solve_value, [self.Q[s] for s in range(self.game.get_n_states())])
-        self.V_ = deepcopy(np.array(results))
+    def _eval_v(self):
+        if self.policy_1[0] is not None or self.policy_2[0] is not None:
+            v = [self.policy_1[s] @ self.Q[s] @ self.policy_2[s] for s in range(self.game.get_n_states())]
+            self.V = np.array(v)
 
     def _update_v_(self):
-        for s in range(self.game.get_n_states()):
-            self.V_[s] = linprog_solve_value(self.Q[s])
+        if self.n_workers > 1:
+            with Pool(self.n_workers) as pool:
+                results = pool.map(linprog_solve, [self.Q[s] for s in range(self.game.get_n_states())])
+            self.V_ = np.array([res[0] for res in results])
+            self.policy_1 = [res[1] for res in results]
+            self.policy_2 = [res[2] for res in results]
+        else:
+            for s in range(self.game.get_n_states()):
+                self.V_[s], self.policy_1[s], self.policy_2[s] = linprog_solve(self.Q[s])
 
     def _update_v(self):
         self.V = deepcopy(self.V_)
@@ -178,3 +174,17 @@ class NashSolver:
     def _print(self, text: str):
         if self.verbose:
             print(text)
+
+
+def compute_q_s(s: int, game: BaseGame, v: np.ndarray):
+    q = np.zeros((game.get_n_action1(s), game.get_n_action2(s)))
+    for a1 in range(game.get_n_action1(s)):
+        for a2 in range(game.get_n_action2(s)):
+            if game.has_compressed_transition:
+                to_states, to_states_prob = game.get_compressed_transitions_s(s, a1, a2)
+                q[a1, a2] = game.get_rewards(s, a1, a2) + game.gamma * np.array(to_states_prob).dot(
+                    np.array(v[to_states]))
+            else:
+                T_s = game.get_transitions_s(s=s, a1=a1, a2=a2)
+                q[a1, a2] = game.get_rewards(s, a1, a2) + game.gamma * T_s.dot(v)
+    return q
