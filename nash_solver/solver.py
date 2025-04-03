@@ -3,31 +3,22 @@ import pathlib
 from nash_solver.base_game import BaseGame
 import numpy as np
 from copy import deepcopy
-from nash_solver.nash_utils import linprog_solve, linprog_solve_value
+from nash_solver.nash_utils import linprog_solve
 import pickle
 import time
 from multiprocessing import Pool
 from functools import partial
+from typing import List
 
 
 class NashSolver:
-    def __init__(self, game: BaseGame,
-                 eps: float = 1e-2,
-                 save_path: pathlib.Path = None,
-                 n_workers: int = 1,
-                 verbose: bool = True,
-                 save_checkpoint: bool = False):
+    def __init__(self, game: BaseGame):
         """
-        Nash equilibrium solver using value iteration and linear programming
+        Nash equilibrium solver using value iteration and linear programming.
+        Player 1 (row) maximizes while Player 2 (column) minimizes.
         :param game: BaseGame object that provides the necessary information of the game
-        :param eps: the difference threshold for convergence. Using l2 norm between two value iterations
-        :param save_path: pathlib.Path determines the directory to save the model and log
-        :param n_workers: number of worker used for parallelization. Default is 1 for sequential.
-        :param verbose: Whether to print out the solver progress: iteration, difference between value iterations, time
-        :param save_checkpoint: Whether to save check points to restart the solver recommended for large games
         """
         self.game = game
-        self.eps = eps
 
         # V stores the old value function and V_ stores the updated value function
         self.V, self.V_ = np.zeros(self.game.get_n_states()), np.zeros(self.game.get_n_states())
@@ -35,69 +26,87 @@ class NashSolver:
         self.Q = [np.zeros((self.game.get_n_action1(s), self.game.get_n_action2(s))) for s in
                   range(self.game.get_n_states())]
 
+        # store the policy as a list of numpy arrays, such that policy[s] gives the action distribution
         self.policy_1 = [None for _ in range(self.game.get_n_states())]
         self.policy_2 = [None for _ in range(self.game.get_n_states())]
+
+        # initialize logging variables
+        self.iter_counter = 0
         self.error = []
         self.time = []
-        self.verbose = verbose
-        self.counter = 0
 
-        self.save_checkpoint = save_checkpoint
-        if self.save_checkpoint:
-            assert save_path is not None
-        self.save_path = save_path
+        # saving path
+        self.save_path = None
 
-        if save_path is not None and not save_path.exists():
-            save_path.mkdir(parents=True)
+    def solve(self,
+              eps: float = 1e-3,
+              n_policy_eval: int = 0,
+              n_workers: int = 1,
+              save_path: pathlib.Path = None,
+              save_checkpoint: bool = False,
+              verbose: bool = False) -> (List[np.ndarray], List[np.ndarray], np.ndarray, List[np.ndarray]):
+        """
+        Solve the Nash equilibrium of the zero-sum stochastic game using value iteration and linear programming
+        :param eps: float, the convergence threshold of the l2-norm difference between old and new value function. `
+        :param n_policy_eval: int, the number of policy evaluation step before the LP step. Default 0 to skip.
+        :param n_workers: int, the number of workers to use for parallel computation. Default 1 for no parallelization.
+        :param save_path: Path to save the model and log. If None, no saving is performed.
+        :param save_checkpoint: Bool, whether to save the model and log at each iteration. Default False.
+                                Recommended for large games in case solver crashed.
+        :param verbose: Bool, whether to print the log. Default False.
+        :return: Policy for player 1, Policy for player 2, Value function, Q function
+        """
 
-        self.n_workers = n_workers
-
-    def solve(self, **options):
-        np.set_printoptions(precision=options.get("precision", 4))
-
-        n_policy_eval = options.get("n_policy_eval", 0)
+        self._initialize_saving(save_path, save_checkpoint)
 
         tic = time.time()
         diff = 1000
-        self._print("Solving Nash equilibrium of a game with {} states".format(self.game.get_n_states()))
-        self._print(f"{'Iter' : <10} {'Difference': <15} {'Time': <10}")
-        while diff > self.eps:
-            self._policy_eval(n_policy_eval=n_policy_eval)
+        self._print("Solving Nash equilibrium of a game with {} states".format(self.game.get_n_states()), verbose)
+        self._print(f"{'Iter' : <10} {'Difference': <15} {'Time': <10}", verbose)
+        while diff > eps:
+            # update value function with the current policies
+            self._policy_eval(n_policy_eval=n_policy_eval, n_workers=n_workers)
 
-            self._update_q()
+            # update the q function with the current value function
+            self._update_q(n_workers=n_workers)
 
-            self._update_v_()
+            # compute the new value function with the nash matrix game LP solver
+            self._update_v_(n_workers=n_workers)
 
             toc = time.time()
 
-            diff = np.round(np.linalg.norm(self.V_ - self.V), 3)
+            diff = np.round(np.linalg.norm(self.V_ - self.V), 4)
             self.error.append(diff)
             self.time.append(toc - tic)
 
+            # copy the new value function to the old value function
             self._update_v()
-            self._print(f"{self.counter : <10} {diff: <15} {np.round(toc - tic, 1): <10}")
-            self.counter += 1
 
-            if self.counter % 5 == 0 and self.counter > 0 and self.save_checkpoint:
+            self._print(f"{self.iter_counter : <10} {diff: <15} {np.round(toc - tic, 4): <10}", verbose)
+            self.iter_counter += 1
+
+            if self.iter_counter % 5 == 0 and self.iter_counter > 0 and self.save_checkpoint:
                 self.save(check_point=True)
 
-        self._print("Value iterations converged!")
+        self._print("Value iterations converged!", verbose)
         # self.policy_1, self.policy_2 = self._generate_policy_parallel()
 
-        n_matrix_game_solver_called = int(self.game.get_n_states() * self.counter)
-        self._print("Matrix Game solver called {} times".format(n_matrix_game_solver_called))
-        return self.policy_1, self.policy_2, self.V, self.Q, n_matrix_game_solver_called
+        n_matrix_game_solver_called = int(self.game.get_n_states() * self.iter_counter)
+        self._print("Matrix Game solver called {} times".format(n_matrix_game_solver_called), verbose)
+        return self.policy_1, self.policy_2, self.V, self.Q
 
-    def _policy_eval(self, n_policy_eval=0):
+    def _policy_eval(self, n_policy_eval: int, n_workers: int):
+        # evaluate the value function under the current policy to help speed up the convergence.
+        # if the n_policy_eval is 0, then this step is skipped.
         for _ in range(n_policy_eval):
-            self._update_q()
+            self._update_q(n_workers=n_workers)
             self._eval_v()
 
-    def _update_q(self):
-        if self.n_workers > 1:
+    def _update_q(self, n_workers: int):
+        if n_workers > 1:
             s_list = list(range(self.game.get_n_states()))
             func = partial(compute_q_s, game=self.game, v=self.V)
-            with Pool(self.n_workers) as pool:
+            with Pool(n_workers) as pool:
                 res = pool.map(func, s_list)
             self.Q = list(res)
         else:
@@ -109,9 +118,9 @@ class NashSolver:
             v = [self.policy_1[s] @ self.Q[s] @ self.policy_2[s] for s in range(self.game.get_n_states())]
             self.V = np.array(v)
 
-    def _update_v_(self):
-        if self.n_workers > 1:
-            with Pool(self.n_workers) as pool:
+    def _update_v_(self, n_workers: int):
+        if n_workers > 1:
+            with Pool(n_workers) as pool:
                 results = pool.map(linprog_solve, [self.Q[s] for s in range(self.game.get_n_states())])
             self.V_ = np.array([res[0] for res in results])
             self.policy_1 = [res[1] for res in results]
@@ -169,11 +178,20 @@ class NashSolver:
             self.error, self.time = deepcopy(pickle.load(f_log))
 
         self.V_ = deepcopy(self.V)
-        self.counter = len(self.error)
+        self.iter_counter = len(self.error)
 
-    def _print(self, text: str):
-        if self.verbose:
+    def _print(self, text: str, verbose: bool = True):
+        if verbose:
             print(text)
+
+    def _initialize_saving(self, save_path: pathlib.Path, save_checkpoint: bool):
+        self.save_checkpoint = save_checkpoint
+        if self.save_checkpoint:
+            assert save_path is not None, "Requested to save checkpoints, but no save path provided!"
+        self.save_path = save_path
+
+        if save_path is not None and not save_path.exists():
+            save_path.mkdir(parents=True)
 
 
 def compute_q_s(s: int, game: BaseGame, v: np.ndarray):

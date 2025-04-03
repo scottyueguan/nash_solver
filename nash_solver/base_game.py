@@ -5,51 +5,47 @@ from copy import deepcopy
 
 class BaseGame:
     def __init__(self, n_states: Union[int],
-                 n_actions_1: Union[List[int], int], n_actions_2: Union[List[int], int],
-                 transitions: Union[List[List[np.ndarray]], None] = None,
-                 compressed_transition = None,
-                 rewards: np.ndarray = None,
-                 terminal_states: List[int] = None, gamma: float = 0.95):
+                 n_actions_1: Union[List[int], int], n_actions_2: Union[List[int], int], gamma: float = 0.95):
         """
         The base game class used by the Nash solver.
         :param n_states: int, number of (joint) states of the game
         :param n_actions_1: int or List[int], number of actions for player 1 (in each state)
         :param n_actions_2: int or List[int], number of actions for player 2 (in each state)
-        :param transitions: List[List[np.ndarray]], transitions[a1][a2] gives the n_states x n_states transition matrix with row sum to 1
-        :param compressed_transition:
-               compressed_transition[0][a1][a2][s] - a list with the state indices that the joint state will transition to
-               compressed_transition[1][a1][a2][s] - a 1d ndarray of the probability of transitioning to the corresponding state
-        :param rewards: np.ndarray, either 1d or 3d.
-               if 1d, rewards[s] gives the reward of state s,
-               if 3d, rewards[s, a1, a2] gives the reward of state s with action a1 and a2
-        :param terminal_states: List[int], list of terminal states
         :param gamma: float, discount factor in (0,1)
         """
         self._n_states = n_states
         self._n_actions_1 = n_actions_1
         self._n_actions_2 = n_actions_2
-        self._transitions = transitions
-
-        self._rewards = rewards
         self.gamma = gamma
-        self.terminal_states = terminal_states
 
+        self._rewards = None
+        self._terminal_states = None
+        self._transitions = None
         self._transitions_to_state, self._transitions_prob = None, None
-        if compressed_transition is not None:
-            self.set_compressed_transitions(*compressed_transition)
 
     def set_rewards(self, rewards: np.ndarray):
         """
         Set the rewards of the game. Either r(s) or r(s, a1, a2)
         :param rewards: np.ndarray, either 1d or 3d.
+               if 1d, rewards[s] gives the reward of state s,
+               if 3d, rewards[s, a1, a2] gives the reward of state s with action a1 and a2
         :return: None
         """
         assert len(rewards.shape) == 1 or len(rewards.shape) == 3, "rewards should be 1d or 3d"
         self._rewards = rewards
 
+    def set_terminal_states(self, terminal_states: List):
+        """
+        Set the terminal states of the game
+        :param terminal_states: List[int], list of terminal states
+        :return: None
+        """
+        self._terminal_states = deepcopy(terminal_states)
+
     def set_transitions(self, transitions: List[List[np.ndarray]]):
         """
         Set the transitions of the game.
+        If action space is state dependent, one should use max number of actions as the size of the lists.
         :param transitions: List[List[np.ndarray]],
                transitions[a1][a2] gives the n_states x n_states transition matrix with row sum to 1
         :return: None
@@ -60,23 +56,18 @@ class BaseGame:
                 assert transitions[a1][a2].sum(axis=1).all() == 1, "transitions should sum to 1"
         self._transitions = transitions
 
-    def set_terminal_states(self, terminal_states: List):
-        """
-        Set the terminal states of the game
-        :param terminal_states: List of terminal states
-        :return: None
-        """
-        self.terminal_states = terminal_states
-
     def set_compressed_transitions(self,
-                                   transition_to_state: List[List[List[int]]],
-                                   transitions_prob: List[List[List[int]]]):
+                                   transition_to_state: List[List[List[List[int]]]],
+                                   transitions_prob: List[List[List[List[int]]]]):
         """
         Set the compressed transitions of the game
-        :param transition_to_state: transition_to_state[a1][a2][s] gives the state indices that the joint state will transition to
-        :param transitions_prob: transitions_prob[a1][a2][s] gives the probability of transitioning to the corresponding state
+        :param transition_to_state: transition_to_state[s][a1][a2] gives the state indices that the joint state will transition to
+        :param transitions_prob: transitions_prob[s][a1][a2] gives the probability of transitioning to the corresponding state
         :return: None
         """
+        assert len(transition_to_state) == self._n_states and len(transitions_prob) == self._n_states, \
+            ("Compressed transitions size error: "
+             "use transitions_prob[s][a1][a2] to store the probabilities of transitioning to the corresponding state.")
         self._transitions_to_state = deepcopy(transition_to_state)
         self._transitions_prob = deepcopy(transitions_prob)
 
@@ -104,9 +95,9 @@ class BaseGame:
             to_states: a list of state indices that the joint state will transition to
             to_states_prob: a 1d array of probabilities of transitioning to the corresponding state
         """
-        assert self._transitions_to_state is not None and self._transitions_prob is not None
-        to_states = self._transitions_to_state[a1][a2][s]
-        to_states_prob = self._transitions_prob[a1][a2][s]
+        assert self.has_compressed_transition, "Compressed transitions not set for the game!"
+        to_states = self._transitions_to_state[s][a1][a2]
+        to_states_prob = self._transitions_prob[s][a1][a2]
         return to_states, to_states_prob
 
     def get_rewards(self, s, a1=None, a2=None) -> float:
