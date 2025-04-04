@@ -114,6 +114,13 @@ class BaseGame:
         else:
             return float(self._rewards[s])
 
+    def is_terminal(self, state: int) -> bool:
+        if self._terminal_states is not None:
+            return state in self._terminal_states
+        else:
+            return False
+
+
     def get_n_states(self) -> int:
         return self._n_states
 
