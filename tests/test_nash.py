@@ -93,7 +93,7 @@ def test_sequential_rps():
     # a0-R, a1-P, a2-S
 
     solver = NashSolver(seq_rps)
-    solver.solve(eps=1e-1, verbose=False, n_workers=2, n_policy_eval=0)
+    solver.solve(eps=1e-1, verbose=True, n_workers=2, n_policy_eval=0)
     p1, p2 = solver.policy_1, solver.policy_2
 
     for s in [0, 1, 2, 3, 5, 6, 7]:

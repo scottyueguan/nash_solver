@@ -63,15 +63,21 @@ class NashSolver:
         diff = 1000
         self._print("Solving Nash equilibrium of a game with {} states".format(self.game.get_n_states()), verbose)
         self._print(f"{'Iter' : <10} {'Difference': <15} {'Time': <10}", verbose)
+
+        if n_workers > 1:
+            pool = Pool(n_workers)
+        else:
+            pool = None
+
         while diff > eps:
             # update value function with the current policies
-            self._policy_eval(n_policy_eval=n_policy_eval, n_workers=n_workers)
+            self._policy_eval(n_policy_eval=n_policy_eval, pool=pool)
 
             # update the q function with the current value function
-            self._update_q(n_workers=n_workers)
+            self._update_q(pool=pool)
 
             # compute the new value function with the nash matrix game LP solver
-            self._update_v_(n_workers=n_workers)
+            self._update_v_(pool=pool)
 
             toc = time.time()
 
@@ -95,19 +101,18 @@ class NashSolver:
         self._print("Matrix Game solver called {} times".format(n_matrix_game_solver_called), verbose)
         return self.policy_1, self.policy_2, self.V, self.Q
 
-    def _policy_eval(self, n_policy_eval: int, n_workers: int):
+    def _policy_eval(self, n_policy_eval: int, pool: Pool=None):
         # evaluate the value function under the current policy to help speed up the convergence.
         # if the n_policy_eval is 0, then this step is skipped.
         for _ in range(n_policy_eval):
-            self._update_q(n_workers=n_workers)
+            self._update_q(pool=pool)
             self._eval_v()
 
-    def _update_q(self, n_workers: int):
-        if n_workers > 1:
+    def _update_q(self, pool:Pool=None):
+        if pool is not None:
             s_list = list(range(self.game.get_n_states()))
             func = partial(compute_q_s, game=self.game, v=self.V)
-            with Pool(n_workers) as pool:
-                res = pool.map(func, s_list)
+            res = pool.map(func, s_list)
             self.Q = list(res)
         else:
             for s in range(self.game.get_n_states()):
@@ -118,10 +123,9 @@ class NashSolver:
             v = [self.policy_1[s] @ self.Q[s] @ self.policy_2[s] for s in range(self.game.get_n_states())]
             self.V = np.array(v)
 
-    def _update_v_(self, n_workers: int):
-        if n_workers > 1:
-            with Pool(n_workers) as pool:
-                results = pool.map(linprog_solve, [self.Q[s] for s in range(self.game.get_n_states())])
+    def _update_v_(self, pool:Pool=None):
+        if pool is not None:
+            results = pool.map(linprog_solve, [self.Q[s] for s in range(self.game.get_n_states())])
             self.V_ = np.array([res[0] for res in results])
             self.policy_1 = [res[1] for res in results]
             self.policy_2 = [res[2] for res in results]
