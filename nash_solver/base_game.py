@@ -100,6 +100,28 @@ class BaseGame:
         to_states_prob = self._transitions_prob[s][a1][a2]
         return to_states, to_states_prob
 
+    def get_all_compressed_transitions_s(self, s: int) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Get compressed transitions from state s for all actions
+        :param s: state
+        :return:
+            to_states: ndarray with to_states[a1, a2] gives the state indices that the joint state will transition to
+            to_states_prob: ndarray with to_states_prob[a1, a2] gives the probability of transitioning
+        """
+        assert self.has_compressed_transition, "Compressed transitions not set for the game!"
+        to_states = np.array(self._transitions_to_state[s]).astype(int)
+        to_states_prob = np.array(self._transitions_prob[s])
+        return to_states, to_states_prob
+
+    def get_all_transitions_s(self, s: int) -> np.ndarray:
+        """
+        Get transitions from state s for all actions
+        :param s: state
+        :return: transitions [a1, a2] gives the transition vector that sum to 1
+        """
+        trans_prob = np.array(self._transitions)[:, :, s, :]
+        return trans_prob
+
     def get_rewards(self, s, a1=None, a2=None) -> float:
         """
         Get the reward of the game
@@ -114,12 +136,23 @@ class BaseGame:
         else:
             return float(self._rewards[s])
 
+    def get_all_rewards(self, s: int) -> Union[np.ndarray, float]:
+        """
+        Get rewards at state s for all actions
+        :param s: state
+        :return: ndarray with rewards[a1, a2]=R[s, a1, a2] gives the reward of state s with action a1 and a2
+            or   float if reward is not action dependent
+        """
+        if len(self._rewards.shape) == 3:
+            return self._rewards[s, :, :]
+        else:
+            return float(self._rewards[s])
+
     def is_terminal(self, state: int) -> bool:
         if self._terminal_states is not None:
             return state in self._terminal_states
         else:
             return False
-
 
     def get_n_states(self) -> int:
         return self._n_states
