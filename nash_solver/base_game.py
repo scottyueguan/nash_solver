@@ -22,6 +22,7 @@ class BaseGame:
         self._terminal_states = None
         self._transitions = None
         self._transitions_to_state, self._transitions_prob = None, None
+        self._padded_transitions_to_state, self._padded_transitions_prob = None, None
 
     def set_rewards(self, rewards: np.ndarray):
         """
@@ -70,6 +71,8 @@ class BaseGame:
              "use transitions_prob[s][a1][a2] to store the probabilities of transitioning to the corresponding state.")
         self._transitions_to_state = deepcopy(transition_to_state)
         self._transitions_prob = deepcopy(transitions_prob)
+
+        self._generate_padded_compressed_transitions()
 
     @property
     def has_compressed_transition(self):
@@ -122,6 +125,22 @@ class BaseGame:
         trans_prob = np.array(self._transitions)[:, :, s, :]
         return trans_prob
 
+    def get_all_transitions(self) -> np.ndarray:
+        """
+        Get transitions for all states
+        :return: transitions [s, a1, a2] gives the transition vector that sum to 1
+        """
+        return np.array(self._transitions).transpose((3, 0, 1, 2))
+
+    def get_padded_transitions(self) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Get the padded transitions for all states size with (S, MAX_A1, MAX_A2, MAX_NEXT_STATE)
+        :return:
+            to_states: ndarray with to_states[s, a1, a2] gives the state indices that the joint state will transition, padded with -1
+            to_states_prob: ndarray with to_states_prob[s, a1, a2] gives the probability of transitioning, padded with -1
+        """
+        return self._padded_transitions_to_state, self._padded_transitions_prob
+
     def get_rewards(self, s, a1=None, a2=None) -> float:
         """
         Get the reward of the game
@@ -136,17 +155,26 @@ class BaseGame:
         else:
             return float(self._rewards[s])
 
-    def get_all_rewards(self, s: int) -> Union[np.ndarray, float]:
-        """
-        Get rewards at state s for all actions
-        :param s: state
-        :return: ndarray with rewards[a1, a2]=R[s, a1, a2] gives the reward of state s with action a1 and a2
-            or   float if reward is not action dependent
-        """
+    def get_all_rewards_s(self, s) -> Union[np.ndarray, float]:
         if len(self._rewards.shape) == 3:
             return self._rewards[s, :, :]
         else:
-            return float(self._rewards[s])
+            return self._rewards[s]
+
+    def get_all_rewards(self) -> Union[np.ndarray, float]:
+        """
+        Get rewards at state s for all actions
+        :return: SXA1XA2 ndarray with rewards R[s, a1, a2] gives the reward of state s with action a1 and a2
+            or   S ndarray if reward is not action dependent
+        """
+        if len(self._rewards.shape) == 3:
+            return self._rewards
+        else:
+            return self._rewards.reshape((self._n_states, 1, 1))
+
+    def get_padded_rewards(self) -> np.ndarray:
+        # TODO: Unify reward array structure and the transition compressed list structure. Maybe remove this.
+        return self.get_all_rewards()
 
     def is_terminal(self, state: int) -> bool:
         if self._terminal_states is not None:
@@ -180,3 +208,21 @@ class BaseGame:
             return self._n_actions_2
         else:
             return max(self._n_actions_2)
+
+    def _generate_padded_compressed_transitions(self):
+        n_states = self._n_states
+        n_a1_max = self.get_max_n_action1()
+        n_a2_max = self.get_max_n_action2()
+        n_next_state_max = max([len(self._transitions_to_state[s][a1][a2]) for s in range(n_states)
+                                for a1 in range(self.get_n_action1(s)) for a2 in range(self.get_n_action2(s))])
+
+        self._padded_transitions_to_state = np.full((n_states, n_a1_max, n_a2_max, n_next_state_max), -1, dtype=int)
+        self._padded_transitions_prob = np.full((n_states, n_a1_max, n_a2_max, n_next_state_max), -1, dtype=float)
+        for s in range(n_states):
+            n_a1, n_a2 = self.get_n_action1(s), self.get_n_action2(s)
+            for a1 in range(n_a1):
+                for a2 in range(n_a2):
+                    to_states, to_states_prob = self.get_compressed_transitions_s(s, a1, a2)
+                    n_next = len(to_states)
+                    self._padded_transitions_to_state[s, a1, a2, :n_next] = to_states
+                    self._padded_transitions_prob[s, a1, a2, :n_next] = to_states_prob

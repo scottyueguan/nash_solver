@@ -23,8 +23,11 @@ class NashSolver:
         # V stores the old value function and V_ stores the updated value function
         self.V, self.V_ = np.zeros(self.game.get_n_states()), np.zeros(self.game.get_n_states())
         # Q stores the Q matrix for each state
-        self.Q = [np.zeros((self.game.get_n_action1(s), self.game.get_n_action2(s))) for s in
-                  range(self.game.get_n_states())]
+        self.Q = np.zeros((self.game.get_n_states(), self.game.get_max_n_action1(), self.game.get_max_n_action2()))
+
+        # Pre-load the n_actions for faster access
+        self.n_actions_1 = [self.game.get_n_action1(s) for s in range(self.game.get_n_states())]
+        self.n_actions_2 = [self.game.get_n_action2(s) for s in range(self.game.get_n_states())]
 
         # store the policy as a list of numpy arrays, such that policy[s] gives the action distribution
         self.policy_1 = [None for _ in range(self.game.get_n_states())]
@@ -75,13 +78,13 @@ class NashSolver:
         while diff > eps:
             # update value function with the current policies
             tic_ = time.time()
-            self._policy_eval(n_policy_eval=n_policy_eval, pool=pool)
+            self._policy_eval(n_policy_eval=n_policy_eval)
             toc_ = time.time()
             time_policy_eval = toc_ - tic_
 
             # update the q function with the current value function
             tic_ = time.time()
-            self._update_q(pool=pool)
+            self._update_q()
             toc_ = time.time()
             time_q_update = toc_ - tic_
 
@@ -119,33 +122,29 @@ class NashSolver:
         # evaluate the value function under the current policy to help speed up the convergence.
         # if the n_policy_eval is 0, then this step is skipped.
         for _ in range(n_policy_eval):
-            tic = time.time()
-            self._update_q(pool=pool)
-            toc = time.time()
-            print(f"update q takes {toc - tic} seconds")
-
-            tic = time.time()
+            self._update_q()
             self._eval_v()
-            toc = time.time()
-            print(f"update v takes {toc - tic} seconds")
 
-    def _update_q(self, pool: Pool = None):
-        if pool is not None:
-            s_list = list(range(self.game.get_n_states()))
-            func = partial(compute_q_s, game=self.game, v=self.V)
-            res = pool.map(func, s_list)
-            self.Q = list(res)
+    def _update_q(self):
+        if self.game.has_compressed_transition:
+            trans_to_state, trans_prob = self.game.get_padded_transitions()
+            rewards = self.game.get_padded_rewards()
+            self.Q = rewards + self.game.gamma * np.sum(trans_prob * self.V[trans_to_state], axis=3)
         else:
-            self.Q = [compute_q_s(s, self.game, self.V) for s in range(self.game.get_n_states())]
+            trans = self.game.get_all_transitions()
+            rewards = self.game.get_all_rewards()
+            self.Q = rewards + self.game.gamma * np.sum(trans * self.V, axis=3)
 
     def _eval_v(self):
         if self.policy_1[0] is not None or self.policy_2[0] is not None:
-            v = [self.policy_1[s] @ self.Q[s] @ self.policy_2[s] for s in range(self.game.get_n_states())]
+            v = [self.policy_1[s] @ self.Q[s, :self.n_actions_1[s], :self.n_actions_2[s]]
+                 @ self.policy_2[s] for s in range(self.game.get_n_states())]
             self.V = np.array(v)
 
     def _update_v_(self, pool: Pool = None):
         if pool is not None:
-            results = pool.map(linprog_solve, [self.Q[s] for s in range(self.game.get_n_states())])
+            results = pool.map(linprog_solve, [self.Q[s, : self.n_actions_1[s], : self.n_actions_2[s]]
+                                               for s in range(self.game.get_n_states())])
             self.V_ = np.array([res[0] for res in results])
             self.policy_1 = [res[1] for res in results]
             self.policy_2 = [res[2] for res in results]
