@@ -33,6 +33,8 @@ class BaseGame:
         :return: None
         """
         assert len(rewards.shape) == 1 or len(rewards.shape) == 3, "rewards should be 1d or 3d"
+        if len(rewards.shape) == 1:
+            rewards = rewards.reshape((self._n_states, 1, 1))
         self._rewards = rewards
 
     def set_terminal_states(self, terminal_states: List):
@@ -167,14 +169,8 @@ class BaseGame:
         :return: SXA1XA2 ndarray with rewards R[s, a1, a2] gives the reward of state s with action a1 and a2
             or   S ndarray if reward is not action dependent
         """
-        if len(self._rewards.shape) == 3:
-            return self._rewards
-        else:
-            return self._rewards.reshape((self._n_states, 1, 1))
+        return self._rewards
 
-    def get_padded_rewards(self) -> np.ndarray:
-        # TODO: Unify reward array structure and the transition compressed list structure. Maybe remove this.
-        return self.get_all_rewards()
 
     def is_terminal(self, state: int) -> bool:
         if self._terminal_states is not None:
@@ -216,8 +212,8 @@ class BaseGame:
         n_next_state_max = max([len(self._transitions_to_state[s][a1][a2]) for s in range(n_states)
                                 for a1 in range(self.get_n_action1(s)) for a2 in range(self.get_n_action2(s))])
 
-        self._padded_transitions_to_state = np.full((n_states, n_a1_max, n_a2_max, n_next_state_max), -1, dtype=int)
-        self._padded_transitions_prob = np.full((n_states, n_a1_max, n_a2_max, n_next_state_max), -1, dtype=float)
+        self._padded_transitions_to_state = np.full((n_states, n_a1_max, n_a2_max, n_next_state_max), 0, dtype=int)
+        self._padded_transitions_prob = np.full((n_states, n_a1_max, n_a2_max, n_next_state_max), 0, dtype=float)
         for s in range(n_states):
             n_a1, n_a2 = self.get_n_action1(s), self.get_n_action2(s)
             for a1 in range(n_a1):

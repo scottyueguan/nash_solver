@@ -22,7 +22,7 @@ class NashSolver:
 
         # V stores the old value function and V_ stores the updated value function
         self.V, self.V_ = np.zeros(self.game.get_n_states()), np.zeros(self.game.get_n_states())
-        # Q stores the Q matrix for each state
+        # Q stores the Q matrix for each state. For games with different number of actions, the Q matrix is padded
         self.Q = np.zeros((self.game.get_n_states(), self.game.get_max_n_action1(), self.game.get_max_n_action2()))
 
         # Pre-load the n_actions for faster access
@@ -47,7 +47,7 @@ class NashSolver:
               n_workers: int = 1,
               save_path: pathlib.Path = None,
               save_checkpoint: bool = False,
-              verbose: bool = False) -> (List[np.ndarray], List[np.ndarray], np.ndarray, List[np.ndarray]):
+              verbose: bool = False) -> None:
         """
         Solve the Nash equilibrium of the zero-sum stochastic game using value iteration and linear programming
         :param eps: float, the convergence threshold of the l2-norm difference between old and new value function. `
@@ -116,7 +116,6 @@ class NashSolver:
 
         n_matrix_game_solver_called = int(self.game.get_n_states() * self.iter_counter)
         self._print("Matrix Game solver called {} times".format(n_matrix_game_solver_called), verbose)
-        return self.policy_1, self.policy_2, self.V, self.Q
 
     def _policy_eval(self, n_policy_eval: int, pool: Pool = None):
         # evaluate the value function under the current policy to help speed up the convergence.
@@ -128,7 +127,7 @@ class NashSolver:
     def _update_q(self):
         if self.game.has_compressed_transition:
             trans_to_state, trans_prob = self.game.get_padded_transitions()
-            rewards = self.game.get_padded_rewards()
+            rewards = self.game.get_all_rewards()
             self.Q = rewards + self.game.gamma * np.sum(trans_prob * self.V[trans_to_state], axis=3)
         else:
             trans = self.game.get_all_transitions()
@@ -143,6 +142,7 @@ class NashSolver:
 
     def _update_v_(self, pool: Pool = None):
         if pool is not None:
+            # Q matrix are passed with their actual size rather than the padded one to save time for LP.
             results = pool.map(linprog_solve, [self.Q[s, : self.n_actions_1[s], : self.n_actions_2[s]]
                                                for s in range(self.game.get_n_states())])
             self.V_ = np.array([res[0] for res in results])
@@ -215,15 +215,3 @@ class NashSolver:
 
         if save_path is not None and not save_path.exists():
             save_path.mkdir(parents=True)
-
-
-def compute_q_s(s: int, game: BaseGame, v: np.ndarray):
-    if game.has_compressed_transition:
-        to_states, to_states_prob = game.get_all_compressed_transitions_s(s=s)
-        r = game.get_all_rewards(s=s)
-        q = r + game.gamma * np.sum(to_states_prob * v[to_states], axis=2)
-    else:
-        trans_prob = game.get_all_transitions_s(s=s)
-        r = game.get_rewards(s=s)
-        q = r + game.gamma * np.sum(trans_prob * v, axis=2)
-    return q
