@@ -108,10 +108,16 @@ The algorithm keeps two sets of values, the Value (`solver.V` and `solver.V_`) a
 The Q-value may be padded with zeros if the number of actions is state-dependent.
 
 **Update Q-values** (`solver._update_q`):
-$$Q_{k+1}(s, a^1, a^2) \gets R(s, a^1, a^2) + \gamma \sum_{s' \in \mathcal{S}} \mathcal{T}(s'|s, a^1, a^2) V_k(s').$$
+
+```math
+Q_{k+1}(s, a^1, a^2) \gets R(s, a^1, a^2) + \gamma \sum_{s' \in \mathcal{S}} \mathcal{T}(s'|s, a^1, a^2) V_k(s').$$
+```
 
 **Update Value** (`solver._update_v_`):
-$$V_{k+1}(s) \gets \mathrm{Nash}\big(Q_k(s, a^1, a^2)\big) = \max_{\mathbf{\pi}^1(s)} \min_{\mathbf{\pi}^2(s)} {\pi^1(s)}^\top \mathbf{Q}_{k+1}(s)\pi^2(s),$$
+
+```math
+V_{k+1}(s) \gets \mathrm{Nash}\big(Q_k(s, a^1, a^2)\big) = \max_{\mathbf{\pi}^1(s)} \min_{\mathbf{\pi}^2(s)} {\pi^1(s)}^\top \mathbf{Q}_{k+1}(s)\pi^2(s),
+```
 where $\mathbf{Q}(s)$ is the Q-table at state $s$, i.e. $[\mathbf{Q}(s)]_{a^1, a^2} =Q(s,a^1, a^2)$.
 And $\pi^1(s)$ and $\pi^2(s)$ are the action distributions of player 1 and player 2 at state $s$, respectively.
 
