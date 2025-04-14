@@ -1,34 +1,36 @@
-### Nash Solver for Stochastic Zero-sum Games
+# Nash Solver for Stochastic Zero-sum Games
 
-This program is an implementation of a generic solver for Nash equilibrium in stochastic zero-sum games.
-It is designed to work with a variety of game structures and can be easily adapted for different scenarios.
-A demonstration of the solver is provided in the `nash_solver_demo.ipynb` Jupyter notebook.
+This repository implements a generic solver for computing Nash equilibria in stochastic zero-sum games.  
+It is designed to support generic game structures and is easily extensible for custom applications.
 
-# Code Structure
+A working demo is provided in [`nash_solver_demo.ipynb`](nash_solver_demo.ipynb), featuring a pursuit-evasion game with animated strategies.
 
-There are two main components in this repository: the `NashSolver` class and the `BaseGame` class.
+---
 
-- `NashSolver`: This class implements the algorithm for finding the Nash equilibrium in a stochastic zero-sum game.
-- `BaseGame`: This class serves as a base for defining the game structure. It is designed to be subclassed for specific
-  game implementations.
+## 📁 Code Structure
 
-The intended architecture is depicted in the following schematic.
+The repository consists of two core components:
 
-![image](img/code_architecture.png)
+- **`NashSolver`** – Implements Shapley value iteration to solve for the Nash equilibrium.
+- **`BaseGame`** – A flexible game interface designed for subclassing.
 
-# Installation
+Architecture overview:
 
-1. Clone the repository to your local machine.
-2. cd into the directory where the repository is located.
-   ```bash
-   cd path/to/nash_solver_repo
-   ```
-3. Install the nash_solver package.
-   ```bash
-    pip install .
-    ```
+![Architecture](img/code_architecture.png)
 
-# Using the NashSolver
+---
+
+## ⚙️ Installation
+
+```bash
+git clone https://github.com/scottyueguan/nash_solver.git
+cd nash_solver
+pip install .
+```
+
+---
+
+## 🚀 Getting Started
 
 First import the necessary classes and define your game structure by subclassing or initializing `BaseGame`.
 Here we use a simple rock-paper-scissor game as an example. 
@@ -97,26 +99,29 @@ which is the uniform equilibrium for the rock-paper-scissor game.
 
 For a more detailed and complex example, see the `nash_solver_demo.ipynb` notebook, where we implement a pursuit-evasion game and animate the policies. 
 
-# Notes on the Shapley Method
-The implemented solver uses the Shapley Method to update the values.
-The Shapley method is an extension to the value iteration (VI) in the single-agent Markov Decision Process (MDP) setting.
-It is similar to the VI update, but instead of using a max operator to update value, we use the Nash value. 
+---
 
-The algorithm keeps two sets of values, the Value (`solver.V` and `solver.V_`) and the Q-values (`solver.Q`).
-`solver.V` stores the game value at each state and thus have a dimension/length of the number of states, i.e., $|\mathcal{S}|$.
-`solver.Q` store the value of taking an action at each state and thus have a dimension $|\mathcal{S}| \times |\mathcal{A}^1| \times |\mathcal{A}^2|$.
-The Q-value may be padded with zeros if the number of actions is state-dependent.
+## 🧠 Solver Details: Shapley Method
+The solver uses the **Shapley method**, an extension of value iteration (VI) from single-agent MDPs to two-player zero-sum games.
+Instead of applying a `max` operator to update the value function, the Shapley method uses the **Nash value** from a matrix game at each state.
+
+The algorithm maintains two sets of variables:
+- `solver.V` / `solver.V_`: Estimated game value at each state; 
+`solver.V_` stores the most up-to-date value, and the difference between `V_` and `V` is used to check convergence; shape = $|\mathcal{S}|$. 
+- `solver.Q`: Estimated Q-values for each action at each state; shape = $|\mathcal{S}| \times |\mathcal{A}^1| \times |\mathcal{A}^2|$.
+
+For environments with state-dependent action sizes, the Q-value may be padded with zeros.
 
 **Update Q-values** (`solver._update_q`):
 
 ```math
-Q_{k+1}(s, a^1, a^2) \gets R(s, a^1, a^2) + \gamma \sum_{s' \in \mathcal{S}} \mathcal{T}(s'|s, a^1, a^2) V_k(s').$$
+Q_{k+1}(s, a^1, a^2) \gets R(s, a^1, a^2) + \gamma \sum_{s' \in \mathcal{S}} \mathcal{T}(s'|s, a^1, a^2) V_k(s').
 ```
 
 **Update Value** (`solver._update_v_`):
 
 ```math
-V_{k+1}(s) \gets \mathrm{Nash}\big(Q_k(s, a^1, a^2)\big) = \max_{\mathbf{\pi}^1(s)} \min_{\mathbf{\pi}^2(s)} {\pi^1(s)}^\top \mathbf{Q}_{k+1}(s)\pi^2(s),
+V_{k+1}(s) \gets \mathrm{Nash}(Q_k(s, a^1, a^2)) = \max_{\mathbf{\pi}^1(s)} \min_{\mathbf{\pi}^2(s)} {\pi^1(s)}^\top \mathbf{Q}_{k+1}(s)\pi^2(s),
 ```
 where $\mathbf{Q}(s)$ is the Q-table at state $s$, i.e. $[\mathbf{Q}(s)]_{a^1, a^2} =Q(s,a^1, a^2)$.
 And $\pi^1(s)$ and $\pi^2(s)$ are the action distributions of player 1 and player 2 at state $s$, respectively.
@@ -135,3 +140,27 @@ The above optimization is solved via the `scipy.optimize.linprog` function, and 
 is obtained from $\pi^1_s$. 
 The minimizing Player 2's policy can be obtained from the dual variables for the optimality constraint $\mathbf{Q}_s ^\top \pi^1_s \geq v \mathbf{1}$.
 This optimization problem is implemented in the `nash_utilities/linprog_solve`.
+
+**Policy Evaluation** (`solver._policy_eval`):
+Empirically, we found that adding a few iterations of policy evaluation after the value update can significantly help with convergence.
+The policy evaluation step estimates the Q-values under the current estimate of the Nash policies. 
+```math
+    \begin{align*}
+        Q(s, a^1, a^2) &\gets R(s, a^1, a^2) + \gamma \sum_{s' \in \mathcal{S}} \mathcal{T}(s'|s, a^1, a^2) V(s'), \\
+        V(s) & \gets {\pi^1(s)}^\top \mathbf{Q}(s) \pi^2(s).
+    \end{align*}
+```
+The number of policy evaluation steps can be set via the `n_policy_eval` parameter in the `NashSolver` class.
+
+
+
+## 🔗 Citation & Acknowledgments
+If you use this codebase in your research, please consider citing the following paper:
+<pre>
+@article{guan2020learning,
+  title={Learning Nash equilibria in zero-sum stochastic games via entropy-regularized policy approximation},
+  author={Guan, Yue and Zhang, Qifan and Tsiotras, Panagiotis},
+  journal={arXiv preprint arXiv:2009.00162},
+  year={2020}
+}
+</pre>
