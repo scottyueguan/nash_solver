@@ -157,10 +157,11 @@ The number of policy evaluation steps can be set via the `n_policy_eval` paramet
 ## 🔗 Citation & Acknowledgments
 If you use this codebase in your research, please consider citing the following paper:
 <pre>
-@article{guan2020learning,
-  title={Learning Nash equilibria in zero-sum stochastic games via entropy-regularized policy approximation},
-  author={Guan, Yue and Zhang, Qifan and Tsiotras, Panagiotis},
-  journal={arXiv preprint arXiv:2009.00162},
-  year={2020}
+@article{guan2021learning,
+  title     = {Learning Nash Equilibria in Zero-Sum Stochastic Games via Entropy-Regularized Policy Approximation},
+  author    = {Guan, Yue and Zhang, Qifan and Tsiotras, Panagiotis},
+  journal   = {Proceedings of the Thirtieth International Joint Conference on
+               Artificial Intelligence, {IJCAI-21}},
+  year      = {2021}
 }
 </pre>
