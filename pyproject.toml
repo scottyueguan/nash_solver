@@ -7,7 +7,8 @@ name = "nash_solver"
 version = "0.0.1"
 description = "A Nash solver for zero-sum stochastic games."
 authors = [
-    {name = "Scott Guan", email = "yguan44@gatech.edu"}
+    {name = "Scott Guan", email = "yguan44@gatech.edu"},
+    {name = "Qifan Zhang"}
 ]
 license = {text = "MIT"}
 readme = "README.md"
@@ -18,4 +19,4 @@ dependencies = [
 ]
 
 [project.urls]
-"Homepage" = "tba"
+"Homepage" = "https://github.com/scottyueguan/nash_solver"
